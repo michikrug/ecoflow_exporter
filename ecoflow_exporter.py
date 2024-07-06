@@ -8,6 +8,7 @@ import json
 import re
 import base64
 import uuid
+import datetime
 from queue import Queue
 from threading import Timer
 from multiprocessing import Process
@@ -15,6 +16,7 @@ import requests
 import paho.mqtt.client as mqtt
 from prometheus_client import start_http_server, REGISTRY, Gauge, Counter
 
+from proto import powerstream_pb2 as powerstream, ecopacket_pb2 as ecopacket
 
 class RepeatTimer(Timer):
     def run(self):
@@ -71,7 +73,7 @@ class EcoflowAuthentication:
             self.mqtt_port = int(response["data"]["port"])
             self.mqtt_username = response["data"]["certificateAccount"]
             self.mqtt_password = response["data"]["certificatePassword"]
-            self.mqtt_client_id = f"ANDROID_{str(uuid.uuid4()).upper()}_{user_id}"
+            self.mqtt_client_id = f"ANDROID_-{str(uuid.uuid4()).upper()}_{user_id}"
         except KeyError as key:
             raise Exception(f"Failed to extract key {key} from {response}")
 
@@ -120,13 +122,17 @@ class EcoflowMQTT():
             self.client.loop_stop()
             self.client.disconnect()
 
-        self.client = mqtt.Client(self.client_id)
+        self.client = mqtt.Client(client_id=self.client_id, clean_session=True, reconnect_on_failure=True)
         self.client.username_pw_set(self.username, self.password)
         self.client.tls_set(certfile=None, keyfile=None, cert_reqs=ssl.CERT_REQUIRED)
         self.client.tls_insecure_set(False)
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        if True:
+            self.client.on_message = self.on_bytes_message
+        else:
+            self.client.on_message = self.on_json_message
 
         log.info(f"Connecting to MQTT Broker {self.addr}:{self.port} using client id {self.client_id}")
         self.client.connect(self.addr, self.port)
@@ -186,6 +192,50 @@ class EcoflowMQTT():
         self.message_queue.put(message.payload.decode("utf-8"))
         self.last_message_time = time.time()
 
+    def on_bytes_message(self, client, userdata, message):
+            try:
+                payload = message.payload
+
+                while True:
+                    packet = ecopacket.SendHeaderMsg()
+                    packet.ParseFromString(payload)
+
+                    log.debug("cmd id %u payload \"%s\"", packet.msg.cmd_id, payload.hex())
+
+                    if packet.msg.cmd_id != 1:
+                        log.info("Unsupported EcoPacket cmd id %u", packet.msg.cmd_id)
+
+                    else:
+                        heartbeat = powerstream.InverterHeartbeat()
+                        heartbeat.ParseFromString(packet.msg.pdata)
+
+                        raw = {"params": {}}
+
+                        for descriptor in heartbeat.DESCRIPTOR.fields:
+                            if not heartbeat.HasField(descriptor.name):
+                                continue
+
+                            raw["params"][descriptor.name] = getattr(heartbeat, descriptor.name)
+
+                        log.info("Found %u fields", len(raw["params"]))
+
+                        raw["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
+
+                        # self.data.update_data(raw)
+
+                    if packet.ByteSize() >= len(payload):
+                        break
+
+                    log.info("Found another frame in payload")
+
+                    packetLength = len(payload) - packet.ByteSize()
+                    payload = payload[:packetLength]
+
+                    print(raw)
+
+            except Exception as error:
+                log.error(error)
+                log.info(message.payload.hex())
 
 class EcoflowMetric:
     def __init__(self, ecoflow_payload_key, device_name):
