@@ -8,7 +8,6 @@ import json
 import re
 import base64
 import uuid
-import datetime
 from queue import Queue
 from threading import Timer
 from multiprocessing import Process
@@ -219,9 +218,8 @@ class EcoflowMQTT():
 
                         log.info("Found %u fields", len(raw["params"]))
 
-                        raw["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
-
-                        # self.data.update_data(raw)
+                        self.message_queue.put(json.dumps(raw))
+                        self.last_message_time = time.time()
 
                     if packet.ByteSize() >= len(payload):
                         break
@@ -230,8 +228,6 @@ class EcoflowMQTT():
 
                     packetLength = len(payload) - packet.ByteSize()
                     payload = payload[:packetLength]
-
-                    print(raw)
 
             except Exception as error:
                 log.error(error)
