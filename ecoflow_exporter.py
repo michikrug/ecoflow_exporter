@@ -335,7 +335,7 @@ class Worker:
                 log.info(f"Created new metric from payload key {metric.ecoflow_payload_key} -> {metric.name}")
                 self.metrics_collector.append(metric)
 
-            metric.set(ecoflow_payload_value)
+            metric.set(int(ecoflow_payload_value) / 10)
 
             if ecoflow_payload_key == 'inv.acInVol' and ecoflow_payload_value == 0:
                 ac_in_current = self.get_metric_by_ecoflow_payload_key('inv.acInAmp')
