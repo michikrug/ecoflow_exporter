@@ -8,6 +8,7 @@ import json
 import re
 import base64
 import uuid
+from enum import IntEnum
 from queue import Queue
 from threading import Timer
 from multiprocessing import Process
@@ -15,7 +16,24 @@ import requests
 import paho.mqtt.client as mqtt
 from prometheus_client import start_http_server, REGISTRY, Gauge, Counter
 
-from proto import powerstream_pb2 as powerstream, ecopacket_pb2 as ecopacket
+import protos.platform_pb2 as platform
+import protos.powerstream_pb2 as powerstream
+
+
+class CmdFuncs(IntEnum):
+    DEFAULT = 0
+    POWERSTREAM = 20
+    SMART_PLUG = 2
+    REPORTS = 254
+
+
+class CmdIds(IntEnum):
+    # powerstream
+    HEARTBEAT = 1
+    HEARTBEAT2 = 4
+    # cmd_func 254
+    ENERGY_TOTAL_REPORT = 32
+
 
 class RepeatTimer(Timer):
     def run(self):
@@ -72,7 +90,7 @@ class EcoflowAuthentication:
             self.mqtt_port = int(response["data"]["port"])
             self.mqtt_username = response["data"]["certificateAccount"]
             self.mqtt_password = response["data"]["certificatePassword"]
-            self.mqtt_client_id = f"ANDROID_-{str(uuid.uuid4()).upper()}_{user_id}"
+            self.mqtt_client_id = f"ANDROID_{str(uuid.uuid4()).upper()}_{user_id}"
         except KeyError as key:
             raise Exception(f"Failed to extract key {key} from {response}")
 
@@ -115,6 +133,16 @@ class EcoflowMQTT():
         self.idle_timer = RepeatTimer(10, self.idle_reconnect)
         self.idle_timer.daemon = True
         self.idle_timer.start()
+
+        self.pdata_messages = {
+            CmdFuncs.POWERSTREAM: {
+                CmdIds.HEARTBEAT: powerstream.InverterHeartbeat(),
+                CmdIds.HEARTBEAT2: powerstream.InverterHeartbeat2()
+            },
+            CmdFuncs.REPORTS: {
+                CmdIds.ENERGY_TOTAL_REPORT: platform.BatchEnergyTotalReport()
+            }
+        }
 
     def connect(self):
         if self.client:
@@ -192,46 +220,43 @@ class EcoflowMQTT():
         self.last_message_time = time.time()
 
     def on_bytes_message(self, client, userdata, message):
-            try:
-                payload = message.payload
-
-                while True:
-                    packet = ecopacket.SendHeaderMsg()
-                    packet.ParseFromString(payload)
-
-                    log.debug("cmd id %u payload \"%s\"", packet.msg.cmd_id, payload.hex())
-
-                    if packet.msg.cmd_id != 1:
-                        log.info("Unsupported EcoPacket cmd id %u", packet.msg.cmd_id)
-
-                    else:
-                        heartbeat = powerstream.InverterHeartbeat()
-                        heartbeat.ParseFromString(packet.msg.pdata)
-
+        try:
+            payload = message.payload
+            while True:
+                packet = powerstream.SendHeaderMsg()
+                packet.ParseFromString(payload)
+                for message in packet.msg:
+                    cmd_id = message.cmd_id if message.HasField("cmd_id") else 0
+                    cmd_func = message.cmd_func if message.HasField("cmd_func") else 0
+                    pdata = self.pdata_messages[cmd_func][cmd_id]
+                    pdata = powerstream.InverterHeartbeat()
+                    if pdata is not None and cmd_func == CmdFuncs.POWERSTREAM:
+                        pdata.ParseFromString(message.pdata)
                         raw = {"params": {}}
-
-                        for descriptor in heartbeat.DESCRIPTOR.fields:
-                            if not heartbeat.HasField(descriptor.name):
-                                continue
-
-                            raw["params"][descriptor.name] = getattr(heartbeat, descriptor.name)
+                        for descriptor, val in pdata.ListFields():
+                            if val is not None:
+                                divisor = descriptor.GetOptions().Extensions[powerstream.mapping_options].divisor
+                                if divisor > 1:
+                                    val = val / divisor
+                                raw["params"][descriptor.name] = val
 
                         log.info("Found %u fields", len(raw["params"]))
 
                         self.message_queue.put(json.dumps(raw))
                         self.last_message_time = time.time()
 
-                    if packet.ByteSize() >= len(payload):
-                        break
+                if packet.ByteSize() >= len(payload):
+                    break
 
-                    log.info("Found another frame in payload")
+                log.info("Found another frame in payload")
 
-                    packetLength = len(payload) - packet.ByteSize()
-                    payload = payload[:packetLength]
+                packetLength = len(payload) - packet.ByteSize()
+                payload = payload[:packetLength]
 
-            except Exception as error:
-                log.error(error)
-                log.info(message.payload.hex())
+        except Exception as error:
+            log.error(error)
+            log.info(message.payload.hex())
+
 
 class EcoflowMetric:
     def __init__(self, ecoflow_payload_key, device_name):
@@ -321,7 +346,7 @@ class Worker:
         log.debug(f"Processing params: {params}")
         for ecoflow_payload_key in params.keys():
             ecoflow_payload_value = params[ecoflow_payload_key]
-            if isinstance(ecoflow_payload_value, list):
+            if not isinstance(ecoflow_payload_value, (int, float)):
                 log.warning(f"Skipping unsupported metric {ecoflow_payload_key}: {ecoflow_payload_value}")
                 continue
 
@@ -335,7 +360,7 @@ class Worker:
                 log.info(f"Created new metric from payload key {metric.ecoflow_payload_key} -> {metric.name}")
                 self.metrics_collector.append(metric)
 
-            metric.set(int(ecoflow_payload_value) / 10)
+            metric.set(ecoflow_payload_value)
 
             if ecoflow_payload_key == 'inv.acInVol' and ecoflow_payload_value == 0:
                 ac_in_current = self.get_metric_by_ecoflow_payload_key('inv.acInAmp')
