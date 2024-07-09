@@ -245,10 +245,13 @@ class EcoflowMQTT():
                         raw = {"params": {}}
                         for descriptor, val in pdata.ListFields():
                             if val is not None:
+                                name = descriptor.name
+                                if name == "value":
+                                    name = f"set_{cmd_id}_value"
                                 divisor = descriptor.GetOptions().Extensions[powerstream.mapping_options].divisor
                                 if divisor > 1:
                                     val = val / divisor
-                                raw["params"][descriptor.name] = val
+                                raw["params"][name] = val
 
                         log.info("Found %u fields", len(raw["params"]))
 
