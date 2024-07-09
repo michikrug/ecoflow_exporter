@@ -31,6 +31,14 @@ class CmdIds(IntEnum):
     # powerstream
     HEARTBEAT = 1
     HEARTBEAT2 = 4
+    SET_PERMANENT_WATTS = 129
+    SET_SUPPLY_PRIORITY = 130
+    SET_BAT_LOWER = 132
+    SET_BAT_UPPER = 133
+    SET_BRIGHTNESS = 135
+    SET_UNKNOWN_136 = 136
+    SET_UNKNOWN_138 = 138
+    SET_FEED_PRIORITY = 143
     # cmd_func 254
     ENERGY_TOTAL_REPORT = 32
 
@@ -137,7 +145,10 @@ class EcoflowMQTT():
         self.pdata_messages = {
             CmdFuncs.POWERSTREAM: {
                 CmdIds.HEARTBEAT: powerstream.InverterHeartbeat(),
-                CmdIds.HEARTBEAT2: powerstream.InverterHeartbeat2()
+                CmdIds.HEARTBEAT2: powerstream.InverterHeartbeat2(),
+                CmdIds.SET_SUPPLY_PRIORITY: powerstream.SetValue(),
+                CmdIds.SET_UNKNOWN_136: powerstream.SetValue(),
+                CmdIds.SET_UNKNOWN_138: powerstream.SetValue(),
             },
             CmdFuncs.REPORTS: {
                 CmdIds.ENERGY_TOTAL_REPORT: platform.BatchEnergyTotalReport()
@@ -229,7 +240,6 @@ class EcoflowMQTT():
                     cmd_id = message.cmd_id if message.HasField("cmd_id") else 0
                     cmd_func = message.cmd_func if message.HasField("cmd_func") else 0
                     pdata = self.pdata_messages[cmd_func][cmd_id]
-                    pdata = powerstream.InverterHeartbeat()
                     if pdata is not None and cmd_func == CmdFuncs.POWERSTREAM:
                         pdata.ParseFromString(message.pdata)
                         raw = {"params": {}}
