@@ -169,8 +169,6 @@ class EcoflowMQTT():
         self.client.on_message = self.on_message
         if True:
             self.client.on_message = self.on_bytes_message
-        else:
-            self.client.on_message = self.on_json_message
 
         log.info(f"Connecting to MQTT Broker {self.addr}:{self.port} using client id {self.client_id}")
         self.client.connect(self.addr, self.port)
