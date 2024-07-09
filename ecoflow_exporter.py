@@ -19,6 +19,9 @@ from prometheus_client import start_http_server, REGISTRY, Gauge, Counter
 import protos.platform_pb2 as platform
 import protos.powerstream_pb2 as powerstream
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 class CmdFuncs(IntEnum):
     DEFAULT = 0
