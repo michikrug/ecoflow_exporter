@@ -237,45 +237,53 @@ class EcoflowMQTT():
     def on_bytes_message(self, client, userdata, message):
         try:
             payload = message.payload
-            while True:
+            payload_length = len(payload)
+            
+            while payload:
                 packet = powerstream.SendHeaderMsg()
                 packet.ParseFromString(payload)
-                for message in packet.msg:
-                    cmd_id = message.cmd_id if message.HasField("cmd_id") else 0
-                    cmd_func = message.cmd_func if message.HasField("cmd_func") else 0
-                    if cmd_func not in self.pdata_messages or cmd_id not in self.pdata_messages[cmd_func]:
-                        log.warn(f"No processor for cmd_func: {cmd_func} and cmd_id: {cmd_id} found")
+                
+                for msg in packet.msg:
+                    cmd_id = msg.cmd_id if msg.HasField("cmd_id") else 0
+                    cmd_func = msg.cmd_func if msg.HasField("cmd_func") else 0
+                    
+                    if cmd_func == CmdFuncs.REPORTS:
+                        log.info(f"Skipping energy report message")
                         continue
+
+                    if cmd_func not in self.pdata_messages or cmd_id not in self.pdata_messages[cmd_func]:
+                        log.warning(f"No processor for cmd_func: {cmd_func} and cmd_id: {cmd_id} found")
+                        continue
+                    
                     pdata = self.pdata_messages[cmd_func][cmd_id]
-                    if pdata is not None and cmd_func == CmdFuncs.POWERSTREAM:
-                        pdata.ParseFromString(message.pdata)
-                        raw = {"params": {}}
-                        for descriptor, val in pdata.ListFields():
-                            if val is not None:
-                                name = descriptor.name
-                                if name == "value":
-                                    name = f"set_{cmd_id}_value"
-                                divisor = descriptor.GetOptions().Extensions[powerstream.mapping_options].divisor
-                                if divisor > 1:
-                                    val = val / divisor
-                                raw["params"][name] = val
-
-                        log.info("Found %u fields", len(raw["params"]))
-
-                        self.message_queue.put(json.dumps(raw))
-                        self.last_message_time = time.time()
-
-                if packet.ByteSize() >= len(payload):
+                    pdata.ParseFromString(msg.pdata)
+                    raw = {"params": {}}
+                    
+                    for descriptor, val in pdata.ListFields():
+                        if val is not None:
+                            name = descriptor.name
+                            if name == "value":
+                                name = f"set_{cmd_id}_value"
+                            divisor = descriptor.GetOptions().Extensions[powerstream.mapping_options].divisor
+                            val = val / divisor if divisor > 1 else val
+                            raw["params"][name] = val
+                    
+                    log.info("Found %u fields", len(raw["params"]))
+                    self.message_queue.put(json.dumps(raw))
+                    self.last_message_time = time.time()
+                
+                # Break if the packet size matches the payload length
+                if packet.ByteSize() >= payload_length:
                     break
 
                 log.info("Found another frame in payload")
 
-                packetLength = len(payload) - packet.ByteSize()
-                payload = payload[:packetLength]
+                # Update payload to the remaining part
+                payload = payload[packet.ByteSize():]
+                payload_length = len(payload)
 
         except Exception as error:
-            log.error(error)
-            #log.info(message.payload.hex())
+            log.error(f"Error processing bytes message: {error}")
 
 
 class EcoflowMetric:
