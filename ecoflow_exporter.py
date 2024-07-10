@@ -177,7 +177,7 @@ class EcoflowMQTT():
                 self.client.disconnect()
 
             # Create a new MQTT client
-            self.client = mqtt.Client(client_id=self.client_id, clean_session=True, reconnect_on_failure=True)
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5, client_id=self.client_id)
             
             # Set username and password for the client
             self.client.username_pw_set(self.username, self.password)
@@ -231,11 +231,11 @@ class EcoflowMQTT():
                     log.error(f"Exception occurred during reconnection: {e}")
                     time.sleep(10)  # Sleep to give some time before retrying after an exception
 
-    def on_connect(self, client, userdata, flags, rc):
+    def on_connect(self, client, userdata, flags, reason_code, properties):
         # Initialize the time of last message at least once upon connection so that other things that rely on that to be
         # set (like idle_reconnect) work
         self.last_message_time = time.time()
-        match rc:
+        match reason_code:
             case 0:
                 self.client.subscribe(self.topic)
                 log.info(f"Subscribed to MQTT topic {self.topic}")
@@ -252,16 +252,16 @@ class EcoflowMQTT():
             case 5:
                 log.error("Failed to connect to MQTT: not authorised")
             case _:
-                log.error(f"Failed to connect to MQTT: another error occured: {rc}")
+                log.error(f"Failed to connect to MQTT: another error occured: {reason_code}")
 
         return client
 
-    def on_disconnect(self, client, userdata, rc):
-        if rc != 0:
-            log.error(f"Unexpected MQTT disconnection: {rc}. Will auto-reconnect")
+    def on_disconnect(self, client, userdata, flags, reason_code, properties):
+        if reason_code > 0:
+            log.error(f"Unexpected MQTT disconnection: {reason_code}. Will auto-reconnect")
             time.sleep(5)
 
-    def on_message(self, client, userdata, message):
+    def on_json_message(self, client, userdata, message):
         self.message_queue.put(message.payload.decode("utf-8"))
         self.last_message_time = time.time()
 
