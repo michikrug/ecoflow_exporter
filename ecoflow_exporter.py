@@ -1,27 +1,27 @@
+import base64
+import json
 import logging as log
-import sys
 import os
+import re
 import signal
 import ssl
+import sys
 import time
-import json
-import re
-import base64
 import uuid
 from enum import IntEnum
 from queue import Queue
 from threading import Timer
-from multiprocessing import Process
-import requests
+
 import paho.mqtt.client as mqtt
-from prometheus_client import start_http_server, REGISTRY, Gauge, Counter
+import requests
+from prometheus_client import REGISTRY, Counter, Gauge, start_http_server
 
 import protos.platform_pb2 as platform
 import protos.powerstream_pb2 as powerstream
 
 from dotenv import load_dotenv
-load_dotenv()
 
+load_dotenv()
 
 class CmdFuncs(IntEnum):
     DEFAULT = 0
