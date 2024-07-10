@@ -209,24 +209,21 @@ class EcoflowMQTT():
             while True:
                 try:
                     log.info("Starting reconnection process.")
+                    self.last_message_time = None
                     self.connect()
-                    
                     # Wait for connection to be established
-                    for _ in range(12):  # Wait up to 60 seconds in 5-second intervals
-                        time.sleep(5)
-                        if self.client.is_connected():
-                            log.info("Reconnection successful. Resuming normal operation.")
-                            self.last_message_time = None
-                            return
-                        else:
-                            log.warning("Still trying to reconnect...")
+                    time.sleep(5)
+                    if self.client.is_connected():
+                        log.info("Reconnection successful. Resuming normal operation.")
+                        break
 
                     log.warning("Reconnection process timed out. Retrying...")
-                    time.sleep(5)  # Sleep to avoid busy-waiting and give time before retrying
 
                 except Exception as e:
                     log.error(f"Exception occurred during reconnection: {e}")
-                    time.sleep(10)  # Sleep to give some time before retrying after an exception
+
+                finally:
+                    time.sleep(5)  # Sleep to avoid busy-waiting and give time before retrying
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
         # Initialize the time of last message at least once upon connection so that other things that rely on that to be
@@ -337,9 +334,6 @@ class EcoflowMetric:
         return new
 
     def set(self, value):
-        # According to best practices for naming metrics and labels, the voltage should be in volts and the current in amperes
-        # WARNING! This will ruin all Prometheus historical data and backward compatibility of Grafana dashboard
-        # value = value / 1000 if value.endswith("_vol") or value.endswith("_amp") else value
         log.debug(f"Set {self.name} = {value}")
         self.metric.labels(device=self.device_name).set(value)
 
@@ -460,7 +454,7 @@ def main():
     ecoflow_password = os.getenv("ECOFLOW_PASSWORD")
     exporter_port = int(os.getenv("EXPORTER_PORT", "9090"))
     collecting_interval_seconds = int(os.getenv("COLLECTING_INTERVAL", "10"))
-    timeout_seconds = int(os.getenv("MQTT_TIMEOUT", "60"))
+    timeout_seconds = int(os.getenv("MQTT_TIMEOUT", "20"))
 
     if (not device_sn or not ecoflow_username or not ecoflow_password):
         log.error("Please, provide all required environment variables: DEVICE_SN, ECOFLOW_USERNAME, ECOFLOW_PASSWORD")
