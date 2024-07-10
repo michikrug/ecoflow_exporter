@@ -36,10 +36,10 @@ class CmdIds(IntEnum):
     HEARTBEAT2 = 4
     SET_PERMANENT_WATTS = 129
     SET_SUPPLY_PRIORITY = 130
-    SET_UNKNOWN_132 = 132
+    SET_UNKNOWN_131 = 131
     SET_BAT_LOWER = 132
     SET_BAT_UPPER = 133
-    SET_UNKNOWN_134 = 132
+    SET_UNKNOWN_134 = 134
     SET_BRIGHTNESS = 135
     SET_UNKNOWN_136 = 136
     SET_UNKNOWN_137 = 137
@@ -152,9 +152,17 @@ class EcoflowMQTT():
             CmdFuncs.POWERSTREAM: {
                 CmdIds.HEARTBEAT: powerstream.InverterHeartbeat(),
                 CmdIds.HEARTBEAT2: powerstream.InverterHeartbeat2(),
-                CmdIds.SET_SUPPLY_PRIORITY: powerstream.SetValue(),
+                CmdIds.SET_PERMANENT_WATTS: powerstream.PermanentWattsPack(),
+                CmdIds.SET_SUPPLY_PRIORITY: powerstream.SupplyPriorityPack(),
+                CmdIds.SET_BAT_LOWER: powerstream.BatLowerPack(),
+                CmdIds.SET_BAT_UPPER: powerstream.BatUpperPack(),
+                CmdIds.SET_BRIGHTNESS: powerstream.InvBrightnessPack(),
+                CmdIds.SET_FEED_PRIORITY: powerstream.FeedPriorityPack(),
+                CmdIds.SET_UNKNOWN_131: powerstream.SetValue(),
+                CmdIds.SET_UNKNOWN_134: powerstream.SetValue(),
                 CmdIds.SET_UNKNOWN_136: powerstream.SetValue(),
-                CmdIds.SET_UNKNOWN_138: powerstream.SetValue(),
+                CmdIds.SET_UNKNOWN_137: powerstream.SetValue(),
+                CmdIds.SET_UNKNOWN_138: powerstream.SetValue()
             },
             CmdFuncs.REPORTS: {
                 CmdIds.ENERGY_TOTAL_REPORT: platform.BatchEnergyTotalReport()

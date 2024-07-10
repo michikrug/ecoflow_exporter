@@ -172,6 +172,30 @@ message SetValue {
     optional int32 value = 1;
 }
 
+message PermanentWattsPack {
+  optional uint32 permanent_watts = 1;
+}
+
+message InvBrightnessPack {
+  optional uint32 inv_brightness = 1;
+}
+
+message BatLowerPack {
+  optional uint32 lower_limit = 1;
+}
+
+message BatUpperPack {
+  optional uint32 upper_limit = 1;
+}
+
+message SupplyPriorityPack {
+  optional uint32 supply_priority = 1;
+}
+
+message FeedPriorityPack {
+  optional uint32 feed_priority = 1;
+}
+
 message SendMsgHart {
     optional int32 link_id = 1;
     optional int32 src = 2;
