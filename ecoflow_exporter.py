@@ -162,23 +162,37 @@ class EcoflowMQTT():
         }
 
     def connect(self):
-        if self.client:
-            self.client.loop_stop()
-            self.client.disconnect()
+        try:
+            # Stop and disconnect existing client if it exists
+            if self.client:
+                self.client.loop_stop()
+                self.client.disconnect()
 
-        self.client = mqtt.Client(client_id=self.client_id, clean_session=True, reconnect_on_failure=True)
-        self.client.username_pw_set(self.username, self.password)
-        self.client.tls_set(certfile=None, keyfile=None, cert_reqs=ssl.CERT_REQUIRED)
-        self.client.tls_insecure_set(False)
-        self.client.on_connect = self.on_connect
-        self.client.on_disconnect = self.on_disconnect
-        self.client.on_message = self.on_message
-        if True:
+            # Create a new MQTT client
+            self.client = mqtt.Client(client_id=self.client_id, clean_session=True, reconnect_on_failure=True)
+            
+            # Set username and password for the client
+            self.client.username_pw_set(self.username, self.password)
+            
+            # Set TLS configuration
+            self.client.tls_set(certfile=None, keyfile=None, cert_reqs=ssl.CERT_REQUIRED)
+            self.client.tls_insecure_set(False)
+            
+            # Set the callback functions
+            self.client.on_connect = self.on_connect
+            self.client.on_disconnect = self.on_disconnect
             self.client.on_message = self.on_bytes_message
 
-        log.info(f"Connecting to MQTT Broker {self.addr}:{self.port} using client id {self.client_id}")
-        self.client.connect(self.addr, self.port)
-        self.client.loop_start()
+            log.info(f"Connecting to MQTT Broker {self.addr}:{self.port} using client id {self.client_id}")
+            
+            # Connect to the broker
+            self.client.connect(self.addr, self.port)
+            
+            # Start the loop to process network traffic and dispatch callbacks
+            self.client.loop_start()
+            
+        except Exception as e:
+            log.error(f"Failed to connect to MQTT Broker {self.addr}:{self.port}. Error: {e}")
 
     def idle_reconnect(self):
         if self.last_message_time and time.time() - self.last_message_time > self.timeout_seconds:
