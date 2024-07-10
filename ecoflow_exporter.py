@@ -209,22 +209,19 @@ class EcoflowMQTT():
             while True:
                 try:
                     log.info("Starting reconnection process.")
-                    connect_process = Process(target=self.connect)
-                    connect_process.start()
-                    connect_process.join(timeout=60)
+                    self.connect()
                     
-                    if connect_process.is_alive():
-                        connect_process.terminate()
-                        connect_process.join()
-                    
-                    if connect_process.exitcode == 0:
-                        log.info("Reconnection successful. Resuming normal operation.")
-                        # Reset last_message_time to avoid race conditions
-                        self.last_message_time = None
-                        break
-                    else:
-                        log.warning("Reconnection process timed out or failed. Retrying...")
-                    
+                    # Wait for connection to be established
+                    for _ in range(12):  # Wait up to 60 seconds in 5-second intervals
+                        time.sleep(5)
+                        if self.client.is_connected():
+                            log.info("Reconnection successful. Resuming normal operation.")
+                            self.last_message_time = None
+                            return
+                        else:
+                            log.warning("Still trying to reconnect...")
+
+                    log.warning("Reconnection process timed out. Retrying...")
                     time.sleep(5)  # Sleep to avoid busy-waiting and give time before retrying
 
                 except Exception as e:
