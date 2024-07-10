@@ -182,23 +182,32 @@ class EcoflowMQTT():
 
     def idle_reconnect(self):
         if self.last_message_time and time.time() - self.last_message_time > self.timeout_seconds:
-            log.error(f"No messages received for {self.timeout_seconds} seconds. Reconnecting to MQTT")
-            # We pull the following into a separate process because there are actually quite a few things that can go
-            # wrong inside the connection code, including it just timing out and never returning. So this gives us a
-            # measure of safety around reconnection
+            log.warning(f"No messages received for {self.timeout_seconds} seconds. Attempting to reconnect to MQTT.")
+            
             while True:
-                connect_process = Process(target=self.connect)
-                connect_process.start()
-                connect_process.join(timeout=60)
-                connect_process.terminate()
-                if connect_process.exitcode == 0:
-                    log.info("Reconnection successful, continuing")
-                    # Reset last_message_time here to avoid a race condition between idle_reconnect getting called again
-                    # before on_connect() or on_message() are called
-                    self.last_message_time = None
-                    break
-                else:
-                    log.error("Reconnection errored out, or timed out, attempted to reconnect...")
+                try:
+                    log.info("Starting reconnection process.")
+                    connect_process = Process(target=self.connect)
+                    connect_process.start()
+                    connect_process.join(timeout=60)
+                    
+                    if connect_process.is_alive():
+                        connect_process.terminate()
+                        connect_process.join()
+                    
+                    if connect_process.exitcode == 0:
+                        log.info("Reconnection successful. Resuming normal operation.")
+                        # Reset last_message_time to avoid race conditions
+                        self.last_message_time = None
+                        break
+                    else:
+                        log.warning("Reconnection process timed out or failed. Retrying...")
+                    
+                    time.sleep(5)  # Sleep to avoid busy-waiting and give time before retrying
+
+                except Exception as e:
+                    log.error(f"Exception occurred during reconnection: {e}")
+                    time.sleep(10)  # Sleep to give some time before retrying after an exception
 
     def on_connect(self, client, userdata, flags, rc):
         # Initialize the time of last message at least once upon connection so that other things that rely on that to be
