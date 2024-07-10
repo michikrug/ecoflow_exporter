@@ -36,10 +36,13 @@ class CmdIds(IntEnum):
     HEARTBEAT2 = 4
     SET_PERMANENT_WATTS = 129
     SET_SUPPLY_PRIORITY = 130
+    SET_UNKNOWN_132 = 132
     SET_BAT_LOWER = 132
     SET_BAT_UPPER = 133
+    SET_UNKNOWN_134 = 132
     SET_BRIGHTNESS = 135
     SET_UNKNOWN_136 = 136
+    SET_UNKNOWN_136 = 137
     SET_UNKNOWN_138 = 138
     SET_FEED_PRIORITY = 143
     # cmd_func 254
@@ -240,6 +243,9 @@ class EcoflowMQTT():
                 for message in packet.msg:
                     cmd_id = message.cmd_id if message.HasField("cmd_id") else 0
                     cmd_func = message.cmd_func if message.HasField("cmd_func") else 0
+                    if cmd_func not in self.pdata_messages or cmd_id not in self.pdata_messages[cmd_func]:
+                        log.warn(f"No processor for cmd_func: {cmd_func} and cmd_id: {cmd_id} found")
+                        continue
                     pdata = self.pdata_messages[cmd_func][cmd_id]
                     if pdata is not None and cmd_func == CmdFuncs.POWERSTREAM:
                         pdata.ParseFromString(message.pdata)
@@ -269,7 +275,7 @@ class EcoflowMQTT():
 
         except Exception as error:
             log.error(error)
-            log.info(message.payload.hex())
+            #log.info(message.payload.hex())
 
 
 class EcoflowMetric:
