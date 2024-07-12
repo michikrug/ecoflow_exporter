@@ -312,11 +312,11 @@ class EcoflowMQTT():
 
 
 class EcoflowMetric:
-    def __init__(self, ecoflow_payload_key, device_name):
+    def __init__(self, ecoflow_payload_key, device_name, documentation = None):
         self.ecoflow_payload_key = ecoflow_payload_key
         self.device_name = device_name
         self.name = f"ecoflow_{self.convert_ecoflow_key_to_prometheus_name()}"
-        self.metric = Gauge(self.name, f"value from MQTT object key {ecoflow_payload_key}", labelnames=["device"])
+        self.metric = Gauge(self.name, documentation or f"value from MQTT object key {ecoflow_payload_key}", labelnames=["device"])
 
     def convert_ecoflow_key_to_prometheus_name(self):
         # bms_bmsStatus.maxCellTemp -> bms_bms_status_max_cell_temp
@@ -350,62 +350,65 @@ class Worker:
         self.metrics_collector = []
         self.last_update_time = {}
         self.expiration_threshold = expiration_threshold
-        self.online = Gauge("ecoflow_online", "1 if device is online", labelnames=["device"])
+        self.online = EcoflowMetric("online", self.device_name, "1 if device is online")
         self.mqtt_messages_receive_total = Counter("ecoflow_mqtt_messages_receive_total", "total MQTT messages", labelnames=["device"])
 
     def loop(self):
-        time.sleep(self.collecting_interval_seconds)
         while True:
+            time.sleep(self.collecting_interval_seconds)
             queue_size = self.message_queue.qsize()
+
             if queue_size > 0:
                 log.info(f"Processing {queue_size} event(s) from the message queue")
-                self.online.labels(device=self.device_name).set(1)
+                self.online.set(1)
                 self.mqtt_messages_receive_total.labels(device=self.device_name).inc(queue_size)
+                self.clear_expired_metrics()
+                
+                while not self.message_queue.empty():
+                    payload = self.message_queue.get()
+                    log.debug(f"Received payload: {payload}")
+                    if payload is None:
+                        continue
+
+                    try:
+                        payload = json.loads(payload)
+                        params = payload['params']
+                    except json.JSONDecodeError as error:
+                        log.error(f"Failed to parse MQTT payload: {payload}. Error: {error}")
+                        continue
+                    except KeyError as key_error:
+                        log.error(f"Failed to extract key {key_error} from payload: {payload}")
+                        continue
+
+                    self.process_payload(params)
             else:
                 log.info("Message queue is empty. Assuming that the device is offline")
-                self.online.labels(device=self.device_name).set(0)
+                self.online.set(0)
                 # Clear metrics for NaN (No data) instead of last value
                 for metric in self.metrics_collector:
                     metric.clear()
 
-            while not self.message_queue.empty():
-                payload = self.message_queue.get()
-                log.debug(f"Recived payload: {payload}")
-                if payload is None:
-                    continue
+    def clear_expired_metrics(self):
+        current_time = time.time()
+        metrics_to_clear = []
+        for metric_name, last_time in self.last_update_time.items():
+            if current_time - last_time > self.expiration_threshold:
+                metrics_to_clear.append(metric_name)
 
-                try:
-                    payload = json.loads(payload)
-                    params = payload['params']
-                except KeyError as key:
-                    log.error(f"Failed to extract key {key} from payload: {payload}")
-                except Exception as error:
-                    log.error(f"Failed to parse MQTT payload: {payload} Error: {error}")
-                    continue
-                self.process_payload(params)
-
-            current_time = time.time()
-            metrics_to_clear = []
-            for metric_name, last_time in self.last_update_time.items():
-                if current_time - last_time > self.expiration_threshold:
-                    metrics_to_clear.append(metric_name)
-
-            for metric_name in metrics_to_clear:
-                del self.last_update_time[metric_name]
-                metric = self.get_metric_by_ecoflow_payload_key(metric_name)
-                if metric:
-                    metric.clear()
-                    log.info(f"Cleared expired metric {metric.name}")
-
-            time.sleep(self.collecting_interval_seconds)
+        for metric_name in metrics_to_clear:
+            del self.last_update_time[metric_name]
+            metric = self.get_metric_by_ecoflow_payload_key(metric_name)
+            if metric:
+                metric.clear()
+                log.info(f"Cleared expired metric {metric.name}")
 
     def get_metric_by_ecoflow_payload_key(self, ecoflow_payload_key):
-        for metric in self.metrics_collector:
-            if metric.ecoflow_payload_key == ecoflow_payload_key:
-                log.debug(f"Found metric {metric.name} linked to {ecoflow_payload_key}")
-                return metric
-        log.debug(f"Cannot find metric linked to {ecoflow_payload_key}")
-        return False
+        metric = next((metric for metric in self.metrics_collector if metric.ecoflow_payload_key == ecoflow_payload_key), None)
+        if metric:
+            log.debug(f"Found metric {metric.name} linked to {ecoflow_payload_key}")
+        else:
+            log.debug(f"Cannot find metric linked to {ecoflow_payload_key}")
+        return metric
 
     def process_payload(self, params):
         log.debug(f"Processing params: {params}")
