@@ -343,11 +343,13 @@ class EcoflowMetric:
 
 
 class Worker:
-    def __init__(self, message_queue, device_name, collecting_interval_seconds=10):
+    def __init__(self, message_queue, device_name, collecting_interval_seconds=10, expiration_threshold=300):
         self.message_queue = message_queue
         self.device_name = device_name
         self.collecting_interval_seconds = collecting_interval_seconds
         self.metrics_collector = []
+        self.last_update_time = {}
+        self.expiration_threshold = expiration_threshold
         self.online = Gauge("ecoflow_online", "1 if device is online", labelnames=["device"])
         self.mqtt_messages_receive_total = Counter("ecoflow_mqtt_messages_receive_total", "total MQTT messages", labelnames=["device"])
 
@@ -382,6 +384,19 @@ class Worker:
                     continue
                 self.process_payload(params)
 
+            current_time = time.time()
+            metrics_to_clear = []
+            for metric_name, last_time in self.last_update_time.items():
+                if current_time - last_time > self.expiration_threshold:
+                    metrics_to_clear.append(metric_name)
+
+            for metric_name in metrics_to_clear:
+                del self.last_update_time[metric_name]
+                metric = self.get_metric_by_ecoflow_payload_key(metric_name)
+                if metric:
+                    metric.clear()
+                    log.info(f"Cleared expired metric {metric.name}")
+
             time.sleep(self.collecting_interval_seconds)
 
     def get_metric_by_ecoflow_payload_key(self, ecoflow_payload_key):
@@ -411,6 +426,7 @@ class Worker:
                 self.metrics_collector.append(metric)
 
             metric.set(ecoflow_payload_value)
+            self.last_update_time[ecoflow_payload_key] = time.time()
 
             if ecoflow_payload_key == 'inv.acInVol' and ecoflow_payload_value == 0:
                 ac_in_current = self.get_metric_by_ecoflow_payload_key('inv.acInAmp')
@@ -454,6 +470,7 @@ def main():
     ecoflow_password = os.getenv("ECOFLOW_PASSWORD")
     exporter_port = int(os.getenv("EXPORTER_PORT", "9090"))
     collecting_interval_seconds = int(os.getenv("COLLECTING_INTERVAL", "10"))
+    expiration_threshold = int(os.getenv("EXPIRATION_THRESHOLD", "300"))
     timeout_seconds = int(os.getenv("MQTT_TIMEOUT", "20"))
 
     if (not device_sn or not ecoflow_username or not ecoflow_password):
@@ -470,7 +487,7 @@ def main():
 
     EcoflowMQTT(message_queue, device_sn, auth.mqtt_username, auth.mqtt_password, auth.mqtt_url, auth.mqtt_port, auth.mqtt_client_id, timeout_seconds)
 
-    metrics = Worker(message_queue, device_name, collecting_interval_seconds)
+    metrics = Worker(message_queue, device_name, collecting_interval_seconds, expiration_threshold)
 
     start_http_server(exporter_port)
 
