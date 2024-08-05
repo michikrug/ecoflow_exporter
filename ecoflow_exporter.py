@@ -9,6 +9,8 @@ import time
 import hashlib
 import hmac
 
+from typing import List, Dict, Any
+
 import requests
 from prometheus_client import REGISTRY, Gauge, start_http_server
 
@@ -18,6 +20,7 @@ load_dotenv()
 
 DIVISORS = {
     'ecoflow_ac_set_watts': 10,
+    'ecoflow_anti_back_flow_flag': 10,
     'ecoflow_bat_error_inv_load_limit': 10,
     'ecoflow_bat_input_cur': 10,
     'ecoflow_bat_input_volt': 10,
@@ -112,33 +115,30 @@ class EcoflowApi:
 
 
 class EcoflowMetric:
-    def __init__(self, ecoflow_payload_key, device_name, documentation=None):
+    def __init__(self, ecoflow_payload_key: str, device_name: str, documentation: str = None):
         self.ecoflow_payload_key = ecoflow_payload_key
         self.device_name = device_name
-        self.name = f"ecoflow_{self.convert_ecoflow_key_to_prometheus_name()}"
+        self.name = f"ecoflow_{self._convert_key_to_prometheus_name()}"
         self.metric = Gauge(self.name, documentation or f"value from API object key {ecoflow_payload_key}", labelnames=["device"])
         self.value = None
         self.last_update_time = None
 
-    def convert_ecoflow_key_to_prometheus_name(self):
-        # bms_bmsStatus.maxCellTemp -> bms_bms_status_max_cell_temp
-        # pd.ext4p8Port -> pd_ext4p8_port
-        key = self.ecoflow_payload_key.split('.')[1].replace('.', '_').replace('Statue', 'Status')
-        new = key[0].lower()
-        for character in key[1:]:
-            if character.isupper() and not new[-1] == '_':
-                new += '_'
-            new += character.lower()
-        # Check that metric name complies with the data model for valid characters
-        # https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
-        if not re.match("[a-zA-Z_:][a-zA-Z0-9_:]*", new):
+    def _convert_key_to_prometheus_name(self) -> str:
+        # Normalize the key
+        key = re.sub(r'(?<!^)(?=[A-Z])', '_', self.ecoflow_payload_key.split('.')[1].replace('.', '_').replace('Statue', 'Status')).lower()
+
+        # Validate the metric name
+        if not re.match(r"[a-zA-Z_:][a-zA-Z0-9_:]*", key):
             raise EcoflowMetricException(f"Cannot convert payload key {self.ecoflow_payload_key} to comply with the Prometheus data model. Please, raise an issue!")
-        return new
+
+        return key
 
     def set(self, value):
         if self.name in DIVISORS:
-            value = value / DIVISORS[self.name]
+            value /= DIVISORS[self.name]
+        
         log.debug(f"Set {self.name} = {value}")
+        
         if self.value != value:
             self.metric.labels(device=self.device_name).set(value)
             self.value = value
@@ -151,18 +151,22 @@ class EcoflowMetric:
 
 
 class Worker:
-    def __init__(self, ecoflow_api, device_name, collecting_interval_seconds=10, expiration_threshold=300):
+    def __init__(self, ecoflow_api: Any, device_name: str, collecting_interval_seconds: int = 30, expiration_threshold: int = 300):
         self.ecoflow_api = ecoflow_api
         self.device_name = device_name
         self.collecting_interval_seconds = collecting_interval_seconds
-        self.metrics_collector = []
+        self.metrics_collector: List[EcoflowMetric] = []
         self.expiration_threshold = expiration_threshold
+        self.running = True
 
     def loop(self):
-        while True:
+        while self.running:
             self.process_payload(self.ecoflow_api.get_quota())
             self.clear_expired_metrics()
             time.sleep(self.collecting_interval_seconds)
+
+    def stop(self):
+        self.running = False
 
     def clear_expired_metrics(self):
         current_time = time.time()
@@ -171,15 +175,26 @@ class Worker:
                 metric.clear()
                 log.info(f"Cleared expired metric {metric.name}")
 
-    def get_metric_by_ecoflow_payload_key(self, ecoflow_payload_key):
+    def create_new_metric(self, ecoflow_payload_key: str) -> EcoflowMetric:
+        try:
+            metric = EcoflowMetric(ecoflow_payload_key, self.device_name)
+            log.info(f"Created new metric from payload key {metric.ecoflow_payload_key} -> {metric.name}")
+            return metric
+        except EcoflowMetricException as error:
+            log.error(error)
+            return None
+
+    def get_metric_by_ecoflow_payload_key(self, ecoflow_payload_key: str) -> EcoflowMetric:
         metric = next((metric for metric in self.metrics_collector if metric.ecoflow_payload_key == ecoflow_payload_key), None)
         if metric:
             log.debug(f"Found metric {metric.name} linked to {ecoflow_payload_key}")
         else:
-            log.debug(f"Cannot find metric linked to {ecoflow_payload_key}")
+            log.debug(f"Cannot find metric linked to {ecoflow_payload_key}. Creating new metric")
+            metric = self.create_new_metric(ecoflow_payload_key)
+            self.metrics_collector.append(metric)
         return metric
 
-    def process_payload(self, params):
+    def process_payload(self, params: Dict[str, Any]):
         log.debug(f"Processing params: {params}")
         for ecoflow_payload_key in filter(lambda key: key.startswith('20_1.'), params.keys()):
             ecoflow_payload_value = params[ecoflow_payload_key]
@@ -188,16 +203,8 @@ class Worker:
                 continue
 
             metric = self.get_metric_by_ecoflow_payload_key(ecoflow_payload_key)
-            if not metric:
-                try:
-                    metric = EcoflowMetric(ecoflow_payload_key, self.device_name)
-                except EcoflowMetricException as error:
-                    log.error(error)
-                    continue
-                log.info(f"Created new metric from payload key {metric.ecoflow_payload_key} -> {metric.name}")
-                self.metrics_collector.append(metric)
-
-            metric.set(ecoflow_payload_value)
+            if metric:
+                metric.set(ecoflow_payload_value)
 
 
 def signal_handler(signum, frame):
@@ -252,6 +259,7 @@ def main():
 
     except KeyboardInterrupt:
         log.info("Received KeyboardInterrupt. Exiting...")
+        metrics.stop()
         sys.exit(0)
 
 
