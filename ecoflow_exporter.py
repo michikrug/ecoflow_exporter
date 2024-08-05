@@ -147,7 +147,7 @@ class EcoflowMetric:
     def clear(self):
         log.debug(f"Clear {self.name}")
         self.metric.clear()
-        self.value = None
+        self.last_update_time = time.time()
 
 
 class Worker:
@@ -174,7 +174,7 @@ class Worker:
     def clear_expired_metrics(self):
         current_time = time.time()
         for metric in self.metrics_collector:
-            if metric.value is not None and current_time - metric.last_update_time > self.expiration_threshold:
+            if current_time - metric.last_update_time > self.expiration_threshold:
                 metric.clear()
                 log.info(f"Cleared expired metric {metric.name}")
 
