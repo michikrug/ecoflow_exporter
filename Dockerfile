@@ -11,6 +11,5 @@ ADD requirements.txt /requirements.txt
 RUN pip install -r /requirements.txt
 
 ADD ecoflow_exporter.py /ecoflow_exporter.py
-ADD protos /protos
 
 CMD [ "python", "/ecoflow_exporter.py" ]
