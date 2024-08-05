@@ -161,7 +161,10 @@ class Worker:
 
     def loop(self):
         while self.running:
-            self.process_payload(self.ecoflow_api.get_quota())
+            try:
+                self.process_payload(self.ecoflow_api.get_quota())
+            except Exception as error:
+                log.error(f"Error processing payload: {error}")
             self.clear_expired_metrics()
             time.sleep(self.collecting_interval_seconds)
 
@@ -199,7 +202,7 @@ class Worker:
         for ecoflow_payload_key in filter(lambda key: key.startswith('20_1.'), params.keys()):
             ecoflow_payload_value = params[ecoflow_payload_key]
             if not isinstance(ecoflow_payload_value, (int, float)):
-                log.warning(f"Skipping unsupported metric {ecoflow_payload_key}: {ecoflow_payload_value}")
+                log.info(f"Skipping unsupported metric {ecoflow_payload_key}: {ecoflow_payload_value}")
                 continue
 
             metric = self.get_metric_by_ecoflow_payload_key(ecoflow_payload_key)
