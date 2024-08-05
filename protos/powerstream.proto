@@ -76,6 +76,8 @@ message InverterHeartbeat {
     optional int32 battery_charge_remain = 59;
     optional int32 battery_discharge_remain = 60;
     optional uint32 feed_priority = 61;
+    optional int32 pv_to_inv_watts = 62 [(mapping_options) = { divisor: 10 }];
+    optional int32 grid_cons_watts = 63 [(mapping_options) = { divisor: 10 }];
 }
 
 message InverterHeartbeat2 {
