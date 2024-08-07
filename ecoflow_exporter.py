@@ -40,7 +40,7 @@ DIVISORS = {
     'ecoflow_inv_to_other_watts': 10,
     'ecoflow_inv_to_plug_watts': 10,
     'ecoflow_llc_input_volt': 10,
-    'ecoflow_llc_op_volt': 10,
+    'ecoflow_llc_op_volt': 100,
     'ecoflow_llc_temp': 10,
     'ecoflow_permanent_watts': 10,
     'ecoflow_plug_total_watts': 10,
@@ -136,9 +136,9 @@ class EcoflowMetric:
     def set(self, value):
         if self.name in DIVISORS:
             value /= DIVISORS[self.name]
-        
+
         log.debug(f"Set {self.name} = {value}")
-        
+
         if self.value != value:
             self.metric.labels(device=self.device_name).set(value)
             self.value = value
