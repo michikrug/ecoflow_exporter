@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import json
 import logging as log
 import os
@@ -6,15 +8,11 @@ import re
 import signal
 import sys
 import time
-import hashlib
-import hmac
-
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Tuple
 
 import requests
-from prometheus_client import REGISTRY, Gauge, start_http_server
-
 from dotenv import load_dotenv
+from prometheus_client import REGISTRY, Gauge, start_http_server
 
 load_dotenv()
 
@@ -63,24 +61,24 @@ DIVISORS = {
 }
 
 
+class EcoflowApiException(Exception):
+    pass
+
+
 class EcoflowMetricException(Exception):
     pass
 
 
 class EcoflowApi:
-    def __init__(self, api_endpoint, accesskey, secretkey, device_sn):
+    def __init__(self, api_endpoint: str, accesskey: str, secretkey: str, device_sn: str):
+        self.api_endpoint = api_endpoint
         self.accesskey = accesskey
         self.secretkey = secretkey
-        self.api_endpoint = api_endpoint
         self.device_sn = device_sn
 
-    def get_quota(self):
-        timestamp = str(int(time.time() * 1000))
-        nonce = base64.b64encode(hashlib.sha256(timestamp.encode()).digest()).decode()[:-1]
-        to_sign = f'accessKey={self.accesskey}&nonce={nonce}&timestamp={timestamp}'
-        sign = hmac.new(self.secretkey.encode(),to_sign.encode(), hashlib.sha256).hexdigest()
+    def get_quota(self) -> Dict[str, Any]:
+        timestamp, nonce, sign = self._generate_auth_params()
         url = f"https://{self.api_endpoint}/iot-open/sign/device/quota/all?sn={self.device_sn}"
-
         headers = {
             'Content-Type': 'application/json;charset=UTF-8',
             'accessKey': self.accesskey,
@@ -90,25 +88,30 @@ class EcoflowApi:
         }
 
         log.info(f"Getting payload from {url}")
-        request = requests.get(url, headers=headers)
-        return self.get_json_response(request)
 
-    def get_json_response(self, request):
-        if request.status_code != 200:
-            raise Exception(f"Got HTTP status code {request.status_code}: {request.text}")
+        response = requests.get(url, headers=headers)
+        return self._get_json_response(response)
+
+    def _generate_auth_params(self) -> Tuple[str, str, str]:
+        timestamp = str(int(time.time() * 1000))
+        nonce = base64.b64encode(hashlib.sha256(timestamp.encode()).digest()).decode()[:-1]
+        to_sign = f'accessKey={self.accesskey}&nonce={nonce}&timestamp={timestamp}'
+        sign = hmac.new(self.secretkey.encode(), to_sign.encode(), hashlib.sha256).hexdigest()
+        return timestamp, nonce, sign
+
+    def _get_json_response(self, response: requests.Response) -> Dict[str, Any]:
+        if response.status_code != 200:
+            raise EcoflowApiException(f"HTTP status code {response.status_code}: {response.text}")
 
         try:
-            response = json.loads(request.text)
-            response_message = response["message"]
+            response_data = response.json()
+            if response_data.get("message", "").lower() != "success":
+                raise EcoflowApiException(f"API response error: {response_data.get('message', 'Unknown error')}")
+            return response_data["data"]
         except KeyError as key:
-            raise Exception(f"Failed to extract key {key} from {response}")
-        except Exception as error:
-            raise Exception(f"Failed to parse response: {request.text} Error: {error}")
-
-        if response_message.lower() != "success":
-            raise Exception(f"{response_message}")
-
-        return response["data"]
+            raise EcoflowApiException(f"Missing key {key} in response: {response.text}")
+        except json.JSONDecodeError as error:
+            raise EcoflowApiException(f"Failed to parse JSON response: {response.text}, Error: {error}")
 
 
 class EcoflowMetric:
