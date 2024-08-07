@@ -8,7 +8,7 @@ import re
 import signal
 import sys
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -210,47 +210,39 @@ class Worker:
                 metric.set(ecoflow_payload_value)
 
 
-def signal_handler(signum, frame):
+def signal_handler(signum: int, frame: Optional[object]) -> None:
     log.info(f"Received signal {signum}. Exiting...")
     sys.exit(0)
 
 
-def main():
+def load_env_variable(name: str, default: Optional[str] = None) -> str:
+    value = os.getenv(name, default)
+    if value is None:
+        log.error(f"Environment variable {name} is required.")
+        sys.exit(1)
+    return value
+
+
+def main() -> None:
     # Register the signal handler for SIGTERM
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Disable Process and Platform collectors
-    for coll in list(REGISTRY._collector_to_names.keys()):
-        REGISTRY.unregister(coll)
+    for collector in list(REGISTRY._collector_to_names.keys()):
+        REGISTRY.unregister(collector)
 
-    log_level = os.getenv("LOG_LEVEL", "INFO")
-
-    match log_level:
-        case "DEBUG":
-            log_level = log.DEBUG
-        case "INFO":
-            log_level = log.INFO
-        case "WARNING":
-            log_level = log.WARNING
-        case "ERROR":
-            log_level = log.ERROR
-        case _:
-            log_level = log.INFO
-
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(log, log_level_str, log.INFO)
     log.basicConfig(stream=sys.stdout, level=log_level, format='%(asctime)s %(levelname)-7s %(message)s')
 
-    device_sn = os.getenv("DEVICE_SN")
-    device_name = os.getenv("DEVICE_NAME") or device_sn
-    ecoflow_accesskey = os.getenv("ECOFLOW_ACCESSKEY")
-    ecoflow_secretkey = os.getenv("ECOFLOW_SECRETKEY")
+    device_sn = load_env_variable("DEVICE_SN")
+    device_name = os.getenv("DEVICE_NAME", device_sn)
+    ecoflow_accesskey = load_env_variable("ECOFLOW_ACCESSKEY")
+    ecoflow_secretkey = load_env_variable("ECOFLOW_SECRETKEY")
     ecoflow_api_endpoint = os.getenv("ECOFLOW_API_ENDPOINT", "api-e.ecoflow.com")
     exporter_port = int(os.getenv("EXPORTER_PORT", "9090"))
     collecting_interval_seconds = int(os.getenv("COLLECTING_INTERVAL", "30"))
     expiration_threshold = int(os.getenv("EXPIRATION_THRESHOLD", "300"))
-
-    if (not device_sn or not ecoflow_accesskey or not ecoflow_secretkey):
-        log.error("Please, provide all required environment variables: DEVICE_SN, ECOFLOW_ACCESSKEY, ECOFLOW_SECRETKEY")
-        sys.exit(1)
 
     ecoflow_api = EcoflowApi(ecoflow_api_endpoint, ecoflow_accesskey, ecoflow_secretkey, device_sn)
     metrics = Worker(ecoflow_api, device_name, collecting_interval_seconds, expiration_threshold)
@@ -259,7 +251,6 @@ def main():
 
     try:
         metrics.loop()
-
     except KeyboardInterrupt:
         log.info("Received KeyboardInterrupt. Exiting...")
         metrics.stop()
