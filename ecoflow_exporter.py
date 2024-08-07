@@ -124,10 +124,10 @@ class EcoflowMetric:
         self.last_update_time = None
 
     def _convert_key_to_prometheus_name(self) -> str:
-        # Normalize the key
+        # Convert the payload key to Prometheus format by converting camel case to snake case
         key = re.sub(r'(?<!^)(?=[A-Z])', '_', self.ecoflow_payload_key.split('.')[1].replace('.', '_').replace('Statue', 'Status')).lower()
 
-        # Validate the metric name
+        # Check if the converted key complies with the Prometheus data model
         if not re.match(r"[a-zA-Z_:][a-zA-Z0-9_:]*", key):
             raise EcoflowMetricException(f"Cannot convert payload key {self.ecoflow_payload_key} to comply with the Prometheus data model. Please, raise an issue!")
 
@@ -172,6 +172,7 @@ class Worker:
         self.running = False
 
     def clear_expired_metrics(self):
+        # Clear metrics that haven't been updated for more than the expiration threshold in seconds
         current_time = time.time()
         for metric in self.metrics_collector:
             if current_time - metric.last_update_time > self.expiration_threshold:
@@ -188,6 +189,7 @@ class Worker:
             return None
 
     def get_metric_by_ecoflow_payload_key(self, ecoflow_payload_key: str) -> EcoflowMetric:
+        # Find the metric linked to the provided ecoflow payload key, or create a new one if not found
         metric = next((metric for metric in self.metrics_collector if metric.ecoflow_payload_key == ecoflow_payload_key), None)
         if metric:
             log.debug(f"Found metric {metric.name} linked to {ecoflow_payload_key}")
@@ -199,12 +201,18 @@ class Worker:
 
     def process_payload(self, params: Dict[str, Any]):
         log.debug(f"Processing params: {params}")
-        for ecoflow_payload_key in filter(lambda key: key.startswith('20_1.'), params.keys()):
+        for ecoflow_payload_key in params.keys():
+            # Skip non-status entries (e.g., '20_134.' for statistics)
+            if not ecoflow_payload_key.startswith('20_1.'):
+                continue
+
+            # Skip unsupported metric types (e.g., non-numeric values)
             ecoflow_payload_value = params[ecoflow_payload_key]
             if not isinstance(ecoflow_payload_value, (int, float)):
                 log.info(f"Skipping unsupported metric {ecoflow_payload_key}: {ecoflow_payload_value}")
                 continue
 
+            # Create or get the metric for the current payload key
             metric = self.get_metric_by_ecoflow_payload_key(ecoflow_payload_key)
             if metric:
                 metric.set(ecoflow_payload_value)
