@@ -125,7 +125,7 @@ class EcoflowMetric:
 
     def _convert_key_to_prometheus_name(self) -> str:
         # Convert the payload key to Prometheus format by converting camel case to snake case
-        key = re.sub(r'(?<!^)(?=[A-Z])', '_', self.ecoflow_payload_key.split('.')[1].replace('.', '_').replace('Statue', 'Status')).lower()
+        key = re.sub(r'(?<!^)(?=[A-Z])', '_', self.ecoflow_payload_key.split('.', 1)[1].replace('.', '_').replace('Statue', 'Status')).lower()
 
         # Check if the converted key complies with the Prometheus data model
         if not re.match(r"[a-zA-Z_:][a-zA-Z0-9_:]*", key):
