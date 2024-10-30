@@ -12,4 +12,6 @@ RUN pip install -r /requirements.txt
 
 ADD ecoflow_exporter.py /ecoflow_exporter.py
 
+EXPOSE 9090
+
 CMD [ "python", "/ecoflow_exporter.py" ]

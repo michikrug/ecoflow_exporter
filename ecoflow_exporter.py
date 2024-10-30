@@ -8,7 +8,7 @@ import re
 import signal
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 from dotenv import load_dotenv
@@ -76,7 +76,7 @@ class EcoflowApi:
         self.secretkey = secretkey
         self.device_sn = device_sn
 
-    def get_quota(self) -> Dict[str, Any]:
+    def get_quota(self) -> dict[str, Any]:
         timestamp, nonce, sign = self._generate_auth_params()
         url = f"https://{self.api_endpoint}/iot-open/sign/device/quota/all?sn={self.device_sn}"
         headers = {
@@ -92,14 +92,14 @@ class EcoflowApi:
         response = requests.get(url, headers=headers)
         return self._get_json_response(response)
 
-    def _generate_auth_params(self) -> Tuple[str, str, str]:
+    def _generate_auth_params(self) -> tuple[str, str, str]:
         timestamp = str(int(time.time() * 1000))
         nonce = base64.b64encode(hashlib.sha256(timestamp.encode()).digest()).decode()[:-1]
         to_sign = f'accessKey={self.accesskey}&nonce={nonce}&timestamp={timestamp}'
         sign = hmac.new(self.secretkey.encode(), to_sign.encode(), hashlib.sha256).hexdigest()
         return timestamp, nonce, sign
 
-    def _get_json_response(self, response: requests.Response) -> Dict[str, Any]:
+    def _get_json_response(self, response: requests.Response) -> dict[str, Any]:
         if response.status_code != 200:
             raise EcoflowApiException(f"HTTP status code {response.status_code}: {response.text}")
 
@@ -155,7 +155,7 @@ class Worker:
         self.ecoflow_api = ecoflow_api
         self.device_name = device_name
         self.collecting_interval_seconds = collecting_interval_seconds
-        self.metrics_collector: List[EcoflowMetric] = []
+        self.metrics_collector: list[EcoflowMetric] = []
         self.expiration_threshold = expiration_threshold
         self.running = True
 
@@ -199,7 +199,7 @@ class Worker:
             self.metrics_collector.append(metric)
         return metric
 
-    def process_payload(self, params: Dict[str, Any]):
+    def process_payload(self, params: dict[str, Any]):
         log.debug(f"Processing params: {params}")
         for ecoflow_payload_key in params.keys():
             # Skip non-status entries (e.g., '20_134.' for statistics)
@@ -218,12 +218,12 @@ class Worker:
                 metric.set(ecoflow_payload_value)
 
 
-def signal_handler(signum: int, frame: Optional[object]) -> None:
+def signal_handler(signum: int, frame: object | None) -> None:
     log.info(f"Received signal {signum}. Exiting...")
     sys.exit(0)
 
 
-def load_env_variable(name: str, default: Optional[str] = None) -> str:
+def load_env_variable(name: str, default: str | None = None) -> str:
     value = os.getenv(name, default)
     if value is None:
         log.error(f"Environment variable {name} is required.")
