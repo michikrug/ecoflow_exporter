@@ -36,15 +36,18 @@ services:
       - grafana_data:/var/lib/grafana
 
   ecoflow_exporter:
-    image: ghcr.io/berezhinskiy/ecoflow_exporter
-    container_name: ecoflow_exporter
+    image: ghcr.io/michikrug/ecoflow-exporter
+    container_name: ecoflow-exporter
     ports:
       - 9091:9091
     restart: unless-stopped
     environment:
       DEVICE_SN: ${DEVICE_SN}
+      DEVICE_NAME: ${DEVICE_NAME}
       ECOFLOW_USERNAME: ${ECOFLOW_USERNAME}
       ECOFLOW_PASSWORD: "${ECOFLOW_PASSWORD}"
+      ECOFLOW_ACCESSKEY: "${ECOFLOW_ACCESSKEY}"
+      ECOFLOW_SECRETKEY: "${ECOFLOW_SECRETKEY}"
       EXPORTER_PORT: 9091
 
 volumes:

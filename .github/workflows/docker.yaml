@@ -5,8 +5,7 @@ on:
     branches:
       - master
     paths:
-      - "*.py"
-      - requirements.txt
+      - "*.go"
       - Dockerfile
       - "docker-compose/**"
       - ".github/**"
@@ -45,7 +44,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/${{ github.repository_owner }}/ecoflow_exporter
+            ghcr.io/${{ github.repository_owner }}/ecoflow-exporter
           tags: |
             type=ref,event=branch
             type=ref,event=pr
