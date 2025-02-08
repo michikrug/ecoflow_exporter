@@ -93,12 +93,13 @@ type Worker struct {
 
 var invalidChars = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 var prefixPattern = regexp.MustCompile(`^[0-9]+_[0-9]+\.`)
+var camelCaseToSnake = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
 func sanitizeMetricName(key string) string {
 	// Strip the prefix pattern if present
 	key = prefixPattern.ReplaceAllString(key, "")
 	// Convert camelCase to snake_case
-	key = regexp.MustCompile(`([a-z0-9])([A-Z])`).ReplaceAllString(key, "${1}_${2}")
+	key = camelCaseToSnake.ReplaceAllString(key, "${1}_${2}")
 	// Replace "Statue" with "Status"
 	key = strings.ReplaceAll(key, "Statue", "Status")
 	// Convert all invalid characters to underscores
