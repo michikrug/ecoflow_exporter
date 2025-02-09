@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -87,13 +86,16 @@ type Worker struct {
 	deviceName          string
 	metricsRegistry     *prometheus.Registry
 	metricsCollector    map[string]*Metric
-	collectingInterval  int
-	expirationThreshold int
+	collectingInterval  time.Duration
+	expirationThreshold time.Duration
 }
 
-var invalidChars = regexp.MustCompile(`[^a-zA-Z0-9_]`)
-var prefixPattern = regexp.MustCompile(`^[0-9]+_[0-9]+\.`)
-var camelCaseToSnake = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+var (
+	invalidChars     = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+	prefixPattern    = regexp.MustCompile(`^[0-9]+_[0-9]+\.`)
+	camelCaseToSnake = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	timeFormat       = "2006-01-02 15:04:05" // Store time format as a constant
+)
 
 func sanitizeMetricName(key string) string {
 	// Strip the prefix pattern if present
@@ -111,7 +113,7 @@ func sanitizeMetricName(key string) string {
 	return strings.ToLower(key)
 }
 
-func NewWorker(endpoint, accessKey, secretKey, deviceSN, deviceName string, interval, expiration int) *Worker {
+func NewWorker(endpoint, accessKey, secretKey, deviceSN, deviceName string, interval, expiration time.Duration) *Worker {
 	return &Worker{
 		client:              &http.Client{},
 		ecoflowEndpoint:     endpoint,
@@ -183,7 +185,7 @@ func (w *Worker) updateMetrics() {
 				if key == "20_1.updateTime" {
 					if strValue, ok := value.(string); ok {
 						// Parse the timestamp assuming the format "2006-01-02 15:04:05"
-						t, err := time.Parse("2006-01-02 15:04:05", strValue)
+						t, err := time.Parse(timeFormat, strValue)
 						if err != nil {
 							log.Printf("Invalid time format for %s: %s", key, strValue)
 							continue
@@ -205,7 +207,7 @@ func (w *Worker) updateMetrics() {
 			}
 		}
 		w.clearExpiredMetrics()
-		time.Sleep(time.Duration(w.collectingInterval) * time.Second)
+		time.Sleep(w.collectingInterval)
 	}
 }
 
@@ -242,7 +244,7 @@ func (w *Worker) setMetric(key string, value float64) {
 func (w *Worker) clearExpiredMetrics() {
 	now := time.Now()
 	for key, metric := range w.metricsCollector {
-		if now.Sub(metric.lastUpdate).Seconds() > float64(w.expirationThreshold) {
+		if now.Sub(metric.lastUpdate) > w.expirationThreshold {
 			w.metricsRegistry.Unregister(metric.gauge) // Remove metric from Prometheus
 			metric.expired = true
 			metric.lastUpdate = now
@@ -283,21 +285,21 @@ func main() {
 		ecoflowEndpoint = endpoint
 	}
 
-	collectingInterval := 30
-	if interval, exists := os.LookupEnv("COLLECTING_INTERVAL"); exists {
-		if i, err := strconv.Atoi(interval); err == nil {
-			collectingInterval = i
+	collectingInterval := 30 * time.Second
+	if intervalStr, exists := os.LookupEnv("COLLECTING_INTERVAL"); exists {
+		if interval, err := time.ParseDuration(intervalStr); err == nil {
+			collectingInterval = interval
 		} else {
-			log.Printf("Invalid COLLECTING_INTERVAL: %s", interval)
+			log.Printf("Invalid COLLECTING_INTERVAL: %s (expected duration string, e.g., 30s, 1m, 2h): %v", intervalStr, err)
 		}
 	}
 
-	expirationThreshold := 900
-	if threshold, exists := os.LookupEnv("EXPIRATION_THRESHOLD"); exists {
-		if t, err := strconv.Atoi(threshold); err == nil {
-			expirationThreshold = t
+	expirationThreshold := 15 * time.Minute
+	if thresholdStr, exists := os.LookupEnv("EXPIRATION_THRESHOLD"); exists {
+		if threshold, err := time.ParseDuration(thresholdStr); err == nil {
+			expirationThreshold = threshold
 		} else {
-			log.Printf("Invalid EXPIRATION_THRESHOLD: %s", threshold)
+			log.Printf("Invalid EXPIRATION_THRESHOLD: %s (expected duration string, e.g., 30s, 1m, 2h): %v", thresholdStr, err)
 		}
 	}
 
