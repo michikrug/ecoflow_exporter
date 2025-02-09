@@ -244,7 +244,7 @@ func (w *Worker) setMetric(key string, value float64) {
 func (w *Worker) clearExpiredMetrics() {
 	now := time.Now()
 	for key, metric := range w.metricsCollector {
-		if now.Sub(metric.lastUpdate) > w.expirationThreshold {
+		if now.Sub(metric.lastUpdate) > w.expirationThreshold && !metric.expired {
 			w.metricsRegistry.Unregister(metric.gauge) // Remove metric from Prometheus
 			metric.expired = true
 			metric.lastUpdate = now
